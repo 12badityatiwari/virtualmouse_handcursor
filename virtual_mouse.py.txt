@@ -1,0 +1,83 @@
+import cv2
+import mediapipe as mp
+import pyautogui
+import numpy as np
+import math
+
+screen_w, screen_h = pyautogui.size()
+
+cap = cv2.VideoCapture(0)
+cap.set(3, 640)
+cap.set(4, 480)
+
+mpHands = mp.solutions.hands
+hands = mpHands.Hands(min_detection_confidence=0.7,
+                      min_tracking_confidence=0.7,
+                      max_num_hands=1)
+
+mpDraw = mp.solutions.drawing_utils
+
+frameR = 100   # Control box size
+prevX, prevY = 0, 0
+smoothening = 7
+
+while True:
+    success, img = cap.read()
+    if not success:
+        break
+
+    img = cv2.flip(img, 1)
+    h, w, _ = img.shape
+
+    cv2.rectangle(img, (frameR, frameR), (w-frameR, h-frameR), (0,255,0), 2)
+
+    imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    results = hands.process(imgRGB)
+
+    if results.multi_hand_landmarks:
+        hand = results.multi_hand_landmarks[0]
+        mpDraw.draw_landmarks(img, hand, mpHands.HAND_CONNECTIONS)
+
+        lm = []
+        for lmks in hand.landmark:
+            x, y = int(lmks.x * w), int(lmks.y * h)
+            lm.append((x, y))
+
+        index = lm[8]
+        middle = lm[12]
+        thumb = lm[4]
+        ring = lm[16]
+
+        index_up = index[1] < lm[6][1]
+        middle_up = middle[1] < lm[10][1]
+        ring_up = ring[1] < lm[14][1]
+
+        x = np.interp(index[0], (frameR, w-frameR), (0, screen_w))
+        y = np.interp(index[1], (frameR, h-frameR), (0, screen_h))
+
+        currX = prevX + (x - prevX) / smoothening
+        currY = prevY + (y - prevY) / smoothening
+        prevX, prevY = currX, currY
+
+        if index_up and not middle_up:
+            pyautogui.moveTo(currX, currY)
+
+        dist = math.hypot(index[0] - thumb[0], index[1] - thumb[1])
+        if dist < 30:
+            pyautogui.click()
+            cv2.waitKey(200)
+
+        if index_up and middle_up:
+            pyautogui.rightClick()
+            cv2.waitKey(200)
+
+        if index_up and middle_up and ring_up:
+            pyautogui.scroll(40)
+
+    cv2.imshow("AI Virtual Mouse", img)
+
+    if cv2.waitKey(1) == 27:
+        break
+
+cap.release()
+cv2.destroyAllWindows()
